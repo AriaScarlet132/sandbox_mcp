@@ -18,19 +18,24 @@
 
 ## 快速开始
 
-1) 安装依赖
+1. 安装依赖
+
 
 - `uv sync`
 
-2) 启动 HTTP API（FastAPI）
+1. 启动 HTTP API（FastAPI）
 
 - `uv run -- uvicorn app.main:app --reload --app-dir src`
 
 默认监听 `http://127.0.0.1:8000`。
 
-3)（可选）启动 MCP Server（SSE）
+如果希望“一条命令同时启动 REST + MCP”，可使用：
 
-本项目的 MCP Server 默认监听 `0.0.0.0:9000`，并使用 SSE 传输：
+- `uv run -- python -m app.run_all`
+
+1.（可选）启动 MCP Server（SSE）
+
+本项目的 MCP Server 默认监听 `0.0.0.0:9000`（可通过 `MCP_HOST`/`MCP_PORT` 修改），并使用 SSE 传输：
 
 - SSE 端点：`GET /sse`
 - 消息端点：`POST /messages/`
@@ -62,11 +67,11 @@ PYTHONPATH=src uv run -- python -m app.mcp_server
 
 复制 [\.env.example](.env.example) 为 `.env` 后按需修改。
 
-当前代码实际会用到的配置：
+当前代码实际会用到的配置（与 [.env.example](.env.example) 保持一致）：
 
-- `SANDBOX_DIR`：沙盒数据目录（默认是项目根目录下的 `sandbox_storage/`，见 [src/app/config.py](src/app/config.py)）。
-- `SANDBOX_TIMEOUT_SECONDS`：沙盒脚本执行超时（秒）。
-- `SANDBOX_MAX_OUTPUT_CHARS`：stdout/stderr 最大保留字符数。
+- `REST_HOST` / `REST_PORT`：REST(FastAPI) 监听地址（用于 Docker 启动与一键启动脚本）。
+- `MCP_HOST` / `MCP_PORT`：MCP(SSE) 监听地址。
+- `APP_ID` / `APP_SECRET`：Spring Boot OAuth2 client credentials（默认 `agent/agent`）。
 
 说明：
 
@@ -165,7 +170,24 @@ print(df.head())
 ## 安全与限制
 
 - 沙盒执行不是强隔离：只是把工作目录固定到 `SANDBOX_DIR`，并加了超时与输出截断；请勿在不可信输入场景直接暴露到公网。
-- Spring Boot 的 `client_id/client_secret` 目前是硬编码（`agent/agent`），如需调整请修改 [src/app/services/springboot_client.py](src/app/services/springboot_client.py)。
+- Spring Boot 的 `client_id/client_secret` 已改为从 `.env` 读取（`APP_ID`/`APP_SECRET`，默认 `agent/agent`）。
+
+## Docker
+
+同时启动 REST + MCP（推荐使用 compose，并把沙盒目录挂载到宿主机）：
+
+```bash
+docker compose up --build
+```
+
+端口：
+
+- REST: `http://127.0.0.1:${REST_PORT:-8000}`
+- MCP(SSE): `http://127.0.0.1:${MCP_PORT:-9000}/sse`
+
+数据卷：
+
+- `./sandbox_storage` -> `/app/sandbox_storage`
 
 ## 常见问题
 

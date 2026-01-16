@@ -1,0 +1,15 @@
+services:
+  agent-data-bridge:
+    build: .
+    container_name: agent-data-bridge
+    env_file:
+      - .env
+    environment:
+      REST_HOST: 0.0.0.0
+      MCP_HOST: 0.0.0.0
+    ports:
+      - "${REST_PORT:-8000}:${REST_PORT:-8000}"
+      - "${MCP_PORT:-9000}:${MCP_PORT:-9000}"
+    volumes:
+      - ./sandbox_storage:/app/sandbox_storage
+    restart: unless-stopped

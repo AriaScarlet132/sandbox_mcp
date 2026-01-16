@@ -2,8 +2,7 @@ from typing import Any
 
 import httpx
 
-APP_ID = "agent"
-APP_SECRET = "agent"
+from ..config import settings
 
 
 async def fetch_data(host: str, userid: str, sql: str, dataset: str) -> dict[str, Any]:
@@ -13,7 +12,7 @@ async def fetch_data(host: str, userid: str, sql: str, dataset: str) -> dict[str
     base_url = host.rstrip("/")
     token_url = (
         f"{base_url}/rest/oauth2/token"
-        f"?grant_type=client_credentials&client_id={APP_ID}&client_secret={APP_SECRET}"
+        f"?grant_type=client_credentials&client_id={settings.app_id}&client_secret={settings.app_secret}"
     )
 
     async with httpx.AsyncClient(timeout=30) as client:

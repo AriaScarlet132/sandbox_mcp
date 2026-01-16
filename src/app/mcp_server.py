@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mcp")
 
-mcp = FastMCP("agent-data-bridge", host="0.0.0.0", port=9000)
+mcp = FastMCP("agent-data-bridge", host=settings.mcp_host, port=settings.mcp_port)
 
 
 @mcp.tool()
