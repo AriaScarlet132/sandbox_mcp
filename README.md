@@ -1,83 +1,179 @@
 # Agent Data Bridge
 
-这是一个使用 FastAPI + uv (Python 3.12) 的中间层服务，用于：
+一个面向 Agent 的“数据桥接 + 轻量沙盒执行”服务，提供两种对外形态：
 
-- 由 Agent 触发调用 Spring Boot 获取数据（此处保留占位函数）
-- 将结果保存为文件并返回摘要
-- 提供一个简易 Python 沙盒执行入口（接收脚本内容或 .py 文件）
+- FastAPI HTTP API：用于手工/系统直接调用。
+- MCP Server（SSE Transport）：把能力以 Tool 的形式暴露给支持 MCP 的客户端。
+
+目前实际实现包含：
+
+- 通过两步 OAuth2（token -> query）调用 Spring Boot 接口获取数据（见 [src/app/services/springboot_client.py](src/app/services/springboot_client.py)）。
+- 将返回结果中的首个 Markdown 表格解析为 DataFrame；小数据直接返回表格，大数据保存为 parquet 到沙盒目录并返回摘要（见 [src/app/main.py](src/app/main.py)）。
+- 提供一个简易 Python “沙盒执行”入口：在指定的沙盒目录中运行脚本，支持超时与输出长度截断（见 [src/app/services/sandbox.py](src/app/services/sandbox.py)）。
+
+## 运行要求
+
+- Python >= 3.12
+- 推荐使用 uv 管理依赖（见 [pyproject.toml](pyproject.toml)）
 
 ## 快速开始
 
-1. 创建虚拟环境并安装依赖：
-   - 使用 uv
-     - `uv venv`
-     - `uv sync`
+1) 安装依赖
 
-2. 启动服务：
-   - `uv run -- uvicorn app.main:app --reload --app-dir src`
+- `uv sync`
 
-3. 环境变量：
-   - 复制 `.env.example` 为 `.env` 并按需修改
+2) 启动 HTTP API（FastAPI）
 
-## API
+- `uv run -- uvicorn app.main:app --reload --app-dir src`
 
-- `POST /api/fetch`
-  - 请求体：`{ "host": "http://192.168.10.21:3000", "userid": "Admin", "sql": "...", "dataset": "..." }`
-  - 行为：调用 Spring Boot 获取数据 → 解析 markdown 表格 → 小数据直接返回，大数据保存为 parquet 并返回文本摘要
+默认监听 `http://127.0.0.1:8000`。
 
-- `POST /api/sandbox/run`
-  - 方式一：JSON
-    - `{ "filename": "script.py", "code": "print(123)" }`
-  - 方式二：multipart 表单上传 `.py` 文件
+3)（可选）启动 MCP Server（SSE）
+
+本项目的 MCP Server 默认监听 `0.0.0.0:9000`，并使用 SSE 传输：
+
+- SSE 端点：`GET /sse`
+- 消息端点：`POST /messages/`
+
+启动命令：
+
+- Windows（PowerShell，推荐）：
+
+```powershell
+$env:PYTHONPATH = "src"
+uv run -- python -m app.mcp_server
+```
+
+- 或者切换到 `src` 目录运行（一次性）：
+
+```powershell
+pushd src
+uv run -- python -m app.mcp_server
+popd
+```
+
+- macOS/Linux：
+
+```bash
+PYTHONPATH=src uv run -- python -m app.mcp_server
+```
+
+## 配置（.env）
+
+复制 [\.env.example](.env.example) 为 `.env` 后按需修改。
+
+当前代码实际会用到的配置：
+
+- `SANDBOX_DIR`：沙盒数据目录（默认是项目根目录下的 `sandbox_storage/`，见 [src/app/config.py](src/app/config.py)）。
+- `SANDBOX_TIMEOUT_SECONDS`：沙盒脚本执行超时（秒）。
+- `SANDBOX_MAX_OUTPUT_CHARS`：stdout/stderr 最大保留字符数。
+
+说明：
+
+- `SPRING_BOOT_BASE_URL` / `SPRING_BOOT_API_PATH` 目前在代码中未被使用；`/api/fetch` 与 MCP 的 `fetch_data` 都会直接使用传入的 `host` 参数作为目标地址（见 [src/app/services/springboot_client.py](src/app/services/springboot_client.py)）。
+
+## HTTP API
+
+### 健康检查
 
 - `GET /health`
 
-## 说明
+返回：`{"status":"ok"}`
 
-- Spring Boot 调用逻辑在 `src/app/services/springboot_client.py` 中，已实现 token + 查询两步流程。
-- 沙盒执行不是真正的安全隔离，仅提供超时与输出长度限制。生产环境建议使用容器或更严格的隔离方案。
+### 拉取数据并返回摘要
 
-## MCP
+- `POST /api/fetch`
 
-已提供 MCP 工具服务：
+请求体：
 
-- `fetch_data(host, userid, sql, dataset)`
-- `sandbox_run(code, filename=None)`
-
-启动命令（需设置 PYTHONPATH）：
-- `PYTHONPATH=src uv run -- python -m app.mcp_server`
-
-默认端口：9000（Streamable HTTP，路径：/mcp）
-
-**Windows 启动说明**
-
-在 Windows（PowerShell）中直接运行 `uv run -- python -m app.mcp_server` 可能会遇到错误：
-
-```
-.venv\Scripts\python.exe: Error while finding module specification for 'app.mcp_server' (ModuleNotFoundError: No module named 'app')
+```json
+{
+  "host": "http://192.168.10.21:3000",
+  "userid": "Admin",
+  "sql": "select ...",
+  "dataset": "demo"
+}
 ```
 
-这是因为默认情况下项目根目录下的 `src` 目录并不在 `PYTHONPATH` 中。可用以下两种简单方法在 Windows 下启动 MCP 服务：
+行为（与实现一致，见 [src/app/main.py](src/app/main.py)）：
 
-- 临时设置会话环境变量（PowerShell）：
+- 解析返回结果中的 `data.markdown`（Markdown 表格）。
+- `Rows <= 15`：直接返回完整 Markdown 表格。
+- `Rows > 15`：保存为 parquet 到 `SANDBOX_DIR`，并返回字段预览 + 前 5 行。
 
-  ```powershell
-  $env:PYTHONPATH = "src"
-  uv run -- python -m app.mcp_server
-  ```
+响应：
 
-- 切换到 `src` 目录再运行（适用于一次性运行）：
+```json
+{ "message": "..." }
+```
 
-  ```powershell
-  pushd src
-  uv run -- python -m app.mcp_server
-  popd
-  ```
+示例（curl）：
 
-另外，如果你通过 `uvicorn` 启动并希望指出应用目录，可以使用 `--app-dir`：
+```bash
+curl -X POST http://127.0.0.1:8000/api/fetch \
+  -H "Content-Type: application/json" \
+  -d '{"host":"http://192.168.10.21:3000","userid":"Admin","sql":"select 1","dataset":"demo"}'
+```
+
+### 运行沙盒脚本
+
+- `POST /api/sandbox/run`
+
+方式 A：JSON
+
+```json
+{ "filename": "anything.py", "code": "print(123)" }
+```
+
+方式 B：multipart/form-data
+
+- 上传字段名 `file`（.py 文件）
+- 或者传 `code` / `filename`
+
+返回（与实现一致，见 [src/app/services/sandbox.py](src/app/services/sandbox.py)）：
+
+```json
+{
+  "filename": "script_xxx.py",
+  "exit_code": 0,
+  "stdout": "...",
+  "stderr": "..."
+}
+```
+
+## MCP Tools
+
+MCP Server 目前提供以下 tools（见 [src/app/mcp_server.py](src/app/mcp_server.py)）：
+
+- `fetch_data(host, userid, sql, dataset) -> str`
+- `sandbox_run(code, filename=None) -> dict`
+- `sandbox_list_files() -> str`
+
+常见用法：先 `fetch_data` 生成 parquet 文件名，再用 `sandbox_run` 执行 Python 读取：
+
+```python
+import pandas as pd
+df = pd.read_parquet("<file_name>")
+print(df.head())
+```
+
+## 目录说明
+
+- `sandbox_storage/`：默认沙盒数据目录（可通过 `SANDBOX_DIR` 覆盖）。
+- `sandbox_storage/_scripts/`：沙盒执行时写入的临时脚本目录（自动创建）。
+
+## 安全与限制
+
+- 沙盒执行不是强隔离：只是把工作目录固定到 `SANDBOX_DIR`，并加了超时与输出截断；请勿在不可信输入场景直接暴露到公网。
+- Spring Boot 的 `client_id/client_secret` 目前是硬编码（`agent/agent`），如需调整请修改 [src/app/services/springboot_client.py](src/app/services/springboot_client.py)。
+
+## 常见问题
+
+### Windows 下 `ModuleNotFoundError: No module named 'app'`
+
+使用 PowerShell 运行 MCP Server 时，请先设置：
 
 ```powershell
-uv run -- uvicorn app.main:app --reload --app-dir src
+$env:PYTHONPATH = "src"
+uv run -- python -m app.mcp_server
 ```
-
-说明：第一种方法把 `src` 加入当前 PowerShell 会话的 `PYTHONPATH`，第二种方法通过改变当前工作目录让 Python 能找到 `app` 包。两者任选其一即可解决 `ModuleNotFoundError` 问题。
