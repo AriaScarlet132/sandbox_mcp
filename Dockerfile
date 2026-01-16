@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir uv
 
 # 先复制依赖定义以便缓存层复用
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --no-dev
 RUN /app/.venv/bin/python -c "import pydantic_settings; print('pydantic-settings OK')"
 
 # 使用 uv 创建的虚拟环境运行，确保依赖可见
