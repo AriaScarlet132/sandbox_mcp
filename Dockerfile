@@ -16,7 +16,6 @@ RUN uv sync --frozen --no-dev
 
 # 再复制源码与运行所需目录
 COPY src ./src
-COPY data ./data
 RUN mkdir -p /app/sandbox_storage
 
 EXPOSE 8000 9000
